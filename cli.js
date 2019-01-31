@@ -2,43 +2,53 @@ const ipfs = require('ipfs')
 const yargs = require('yargs')
 const path = require('path')
 const fs = require('fs')
+const tmp = require('tmp')
+const { promisify } = require('util')
+const getPorts = promisify(require('get-ports'))
 
-let node = ipfs.createNode()
-// TODO: use a tmpdir for storing the node data.
-// TODO: search for open port
-// Addresses: {
-//     Swarm: [
-//           '/ip4/0.0.0.0/tcp/4002',
-//           '/ip4/127.0.0.1/tcp/4003/ws'
-//     ],
+const loadFiles = require('./lib/load')
 
-node.ready = new Promise(resolve => node.on('ready', resolve))
+const createNode = async argv => {
+  let ports = await getPorts([8010, 8020, 8030, 8040], 8079)
+  let dir = tmp.dirSync().name
+  let config = {
+    Addresses: {
+      Swarm: [
+        `/ip4/0.0.0.0/tcp/${ports[0]}`,
+        `/ip4/127.0.0.1/tcp/${ports[1]}/ws`
+      ],
+      API: `/ip4/127.0.0.1/tcp/${ports[2]}`,
+      Gateway: `/ip4/127.0.0.1/tcp/${ports[3]}`
+    }
+  }
+  let options = {
+    repo: dir,
+    config
+  }
+  let node = ipfs.createNode(options)
+  node.ready = new Promise(resolve => node.on('ready', resolve))
+  await node.ready
+  return node
+}
 
 const put = async argv => {
-  await node.ready
-  let dir = `/dropub/${Date.now()}`
-  await node.files.mkdir(dir, {parents: true}) 
-  
-  for (let filename of argv.files) {
-    let file = fs.createReadStream(path.join(__dirname, filename))
-    await node.files.write(`${dir}/${filename}`, file, {create: true})
-  }
-  console.log(`Serving file${argv.files.length > 1 ? 's' : ''}. https://dropub.com/cid/${(await node.files.stat(dir)).hash}`)
+  let node = await createNode(argv)
+  let {dir, count} = await loadFiles(node, argv.files.map(f => path.join(process.cwd(), f)))
+  let msg = `Serving ${count} file${count > 1 ? 's' : ''}.`
+  msg += ` https://dropub.com/cid/${(await node.files.stat(dir)).hash}` 
+  console.log(msg)
 }
+
 const get = async argv => {
-  console.log({get: argv})
-  await node.ready
-  console.log('test')
+  let node = await createNode(argv)
   argv.urls = argv.urls.filter(u => u.startsWith('http:') || u.startsWith('https:'))
   argv.cids = argv.cids.filter(u => !u.startsWith('http:') && !u.startsWith('https:'))
-  console.log(argv)
   for (let url of argv.urls) {
     if (!urls.startsWith('https://dropub.com/cid/')) throw new Error('Unknown domain or path in URL')
     argv.cids.push(url.slice('https://dropub.com/cid/'.length))
   }
-  console.log({cids: argv.cids})
   for (let cid of argv.cids) {
-    console.log(await ipfs.ls(cid))
+    console.log(await node.ls(cid))
   }
 }
 
