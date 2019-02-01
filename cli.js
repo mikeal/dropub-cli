@@ -41,6 +41,12 @@ const put = async argv => {
   let msg = `Serving ${count} file${count > 1 ? 's' : ''}.`
   msg += ` https://dropub.com/cid/${(await node.files.stat(dir)).hash}` 
   console.log(msg)
+  if (argv.duration !== Infinity) {
+    setTimeout(() => {
+      console.log('Duration limit reached, closing node.')
+      node.stop()
+    }, argv.duration * 1000)
+  }
 }
 
 const fileTree = (node, query, fn) => {
@@ -119,7 +125,14 @@ require('yargs')
     command: 'put [files..]',
     aliases: ['p'],
     desc: 'Push files to dropub. Stays open to offer the file if login is not enabled',
-    handler: put
+    handler: put,
+    builder: yargs => {
+      yargs.option('duration', {
+        desc: 'Duration to offer the files',
+        alias: 't',
+        default: Infinity
+      })
+    }
   })
   .command({
     command: 'get [urls|cids..]',
