@@ -34,7 +34,10 @@ const createNode = async argv => {
 
 const put = async argv => {
   let node = await createNode(argv)
-  let {dir, count} = await loadFiles(node, argv.files.map(f => path.join(process.cwd(), f)))
+  let {dir, count} = await loadFiles(node, argv.files.map(f => {
+    if (f[0] === '/') return f
+    return path.join(process.cwd(), f)
+  }))
   let msg = `Serving ${count} file${count > 1 ? 's' : ''}.`
   msg += ` https://dropub.com/cid/${(await node.files.stat(dir)).hash}` 
   console.log(msg)
@@ -80,7 +83,7 @@ const get = async argv => {
   argv.urls = argv.urls.filter(u => u.startsWith('http:') || u.startsWith('https:'))
   argv.cids = argv.cids.filter(u => !u.startsWith('http:') && !u.startsWith('https:'))
   for (let url of argv.urls) {
-    if (!urls.startsWith('https://dropub.com/cid/')) throw new Error('Unknown domain or path in URL')
+    if (!url.startsWith('https://dropub.com/cid/')) throw new Error('Unknown domain or path in URL')
     argv.cids.push(url.slice('https://dropub.com/cid/'.length))
   }
   let tasks = []
