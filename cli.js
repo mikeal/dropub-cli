@@ -22,6 +22,7 @@ const createNode = async argv => {
     }
   }
   let options = {
+    silent: true,
     repo: dir,
     config
   }
@@ -39,6 +40,41 @@ const put = async argv => {
   console.log(msg)
 }
 
+const fileTree = (node, query, fn) => {
+  return node.ls(query).then(entries => {
+    let tasks = []
+    for (let entry of entries) {
+      let fullpath = query + '/' + entry.name
+      if (entry.type === 'dir') {
+        tasks.push(fn(fullpath, entry).then(() => fileTree(node, fullpath, fn)))
+      } else if (entry.type === 'file') {
+        tasks.push(fn(fullpath, entry))
+      }
+    }
+    return Promise.all(tasks)
+  })
+}
+
+const stat = promisify(fs.stat)
+const _mkdir = promisify(fs.mkdir)
+const mkdir = async str => {
+  try {
+    let stats = await stat(str)
+  } catch (e) {
+    return _mkdir(str)
+  }
+}
+
+const filereader = (node, path) => new Promise((resolve, reject) => {
+  let reader = node.getReadableStream(path)
+  reader.once('data', entry => {
+    resolve(entry.content)
+    reader.on('data', () => reject(new Error('More than one file for path')))
+  })
+  reader.on('error', reject)
+  reader.on('end', () => reject(new Error('Ended without result')))
+})
+
 const get = async argv => {
   let node = await createNode(argv)
   argv.urls = argv.urls.filter(u => u.startsWith('http:') || u.startsWith('https:'))
@@ -47,9 +83,32 @@ const get = async argv => {
     if (!urls.startsWith('https://dropub.com/cid/')) throw new Error('Unknown domain or path in URL')
     argv.cids.push(url.slice('https://dropub.com/cid/'.length))
   }
+  let tasks = []
+  let count = { dir: 0, file: 0 }
   for (let cid of argv.cids) {
-    console.log(await node.ls(cid))
+    if (!argv.download) throw new Error('Only download is implemented')
+
+    tasks.push(fileTree(node, cid, async (fullpath, entry) => {
+      let trimpath = fullpath.slice(cid.length + 1)
+      let localpath = path.join(argv.outputDir, trimpath)
+      if (entry.type === 'dir') {
+        await mkdir(localpath)
+        count.dir += 1
+      } else if (entry.type === 'file') {
+        let reader =  await filereader(node, fullpath)   
+        reader.resume() // why is this necessary?
+        let writer = reader.pipe(fs.createWriteStream(localpath))
+        count.file += 1
+        return new Promise((resolve, reject) => {
+          writer.on('close', resolve)
+          writer.on('error', reject)
+        })
+      }
+    }))
   }
+  await Promise.all(tasks)
+  node.stop()
+  console.log(`Done! Created ${count.dir} directories and ${count.file} files.`)
 }
 
 require('yargs')
@@ -69,6 +128,11 @@ require('yargs')
         desc: 'Download the files locally',
         alias: 'd',
         default: true
+      })
+      yargs.option('outputDir', {
+        desc: 'Directory to download files locally',
+        alias: 'o',
+        default: process.cwd()
       })
     }
   })
