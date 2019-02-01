@@ -4,7 +4,7 @@ workflow "Build and Publish" {
 }
 
 action "Build" {
-  uses = "actions/npm"
+  uses = "actions/npm@master"
   args = "npm install"
 }
 
