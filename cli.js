@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 const ipfs = require('ipfs')
 const yargs = require('yargs')
 const path = require('path')
